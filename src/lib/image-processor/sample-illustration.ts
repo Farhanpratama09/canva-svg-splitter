@@ -167,3 +167,166 @@ function drawStar(
   ctx.stroke();
   ctx.restore();
 }
+
+/**
+ * Generates a synthetic 3D glossy/clay mascot render with radial highlights,
+ * deep shadows, and a neutral white ceramic base to test Mode 3D recoloring.
+ */
+export function createSample3DRenderImage(size: number = 840): LoadedImageResult {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!ctx) {
+    throw new Error("Browser gagal membuat konteks kanvas 3D contoh.");
+  }
+
+  ctx.clearRect(0, 0, size, size);
+  const cx = size / 2;
+  const cy = size / 2 + 24;
+
+  // Soft drop shadow on transparent floor
+  const floorShadow = ctx.createRadialGradient(
+    cx,
+    cy + 250,
+    20,
+    cx,
+    cy + 250,
+    220,
+  );
+  floorShadow.addColorStop(0, "rgba(15, 23, 42, 0.32)");
+  floorShadow.addColorStop(1, "rgba(15, 23, 42, 0)");
+  ctx.fillStyle = floorShadow;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 250, 210, 44, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Neutral white/silver 3D clay base collar (tests neutral multiply/tint)
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(cx - 175, cy + 95, 350, 140, 70);
+  const collarGrad = ctx.createRadialGradient(
+    cx - 55,
+    cy + 120,
+    18,
+    cx + 15,
+    cy + 165,
+    220,
+  );
+  collarGrad.addColorStop(0, "#FFFFFF");
+  collarGrad.addColorStop(0.45, "#E2E8F0");
+  collarGrad.addColorStop(0.85, "#94A3B8");
+  collarGrad.addColorStop(1, "#64748B");
+  ctx.fillStyle = collarGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // Glossy blue 3D clay head sphere
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy - 25, 195, 0, Math.PI * 2);
+  const headGrad = ctx.createRadialGradient(
+    cx - 72,
+    cy - 105,
+    18,
+    cx + 10,
+    cy - 10,
+    240,
+  );
+  headGrad.addColorStop(0, "#E0F2FE");
+  headGrad.addColorStop(0.25, "#38BDF8");
+  headGrad.addColorStop(0.68, "#0284C7");
+  headGrad.addColorStop(1, "#0C3559");
+  ctx.fillStyle = headGrad;
+  ctx.fill();
+
+  // Specular glossy highlight oval
+  ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.beginPath();
+  ctx.ellipse(cx - 75, cy - 115, 38, 22, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Glossy coral-red 3D beanie hat
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - 175, 142, 92, 0, Math.PI, Math.PI * 2);
+  ctx.closePath();
+  const hatGrad = ctx.createRadialGradient(
+    cx - 48,
+    cy - 235,
+    12,
+    cx,
+    cy - 190,
+    160,
+  );
+  hatGrad.addColorStop(0, "#FFE4E6");
+  hatGrad.addColorStop(0.32, "#FB7185");
+  hatGrad.addColorStop(0.75, "#E11D48");
+  hatGrad.addColorStop(1, "#7F1D1D");
+  ctx.fillStyle = hatGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // Glossy yellow/gold 3D star badge
+  ctx.save();
+  const starCx = cx + 62;
+  const starCy = cy - 210;
+  let rot = (Math.PI / 2) * 3;
+  const step = Math.PI / 5;
+  ctx.beginPath();
+  ctx.moveTo(starCx, starCy - 44);
+  for (let i = 0; i < 5; i++) {
+    ctx.lineTo(starCx + Math.cos(rot) * 44, starCy + Math.sin(rot) * 44);
+    rot += step;
+    ctx.lineTo(starCx + Math.cos(rot) * 20, starCy + Math.sin(rot) * 20);
+    rot += step;
+  }
+  ctx.closePath();
+  const starGrad = ctx.createRadialGradient(
+    starCx - 12,
+    starCy - 14,
+    4,
+    starCx,
+    starCy,
+    48,
+  );
+  starGrad.addColorStop(0, "#FEF9C3");
+  starGrad.addColorStop(0.4, "#FACC15");
+  starGrad.addColorStop(1, "#A16207");
+  ctx.fillStyle = starGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // Glossy dark visor/glasses
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(cx - 120, cy - 68, 240, 74, 37);
+  const visorGrad = ctx.createLinearGradient(cx, cy - 68, cx, cy + 6);
+  visorGrad.addColorStop(0, "#475569");
+  visorGrad.addColorStop(0.35, "#1E293B");
+  visorGrad.addColorStop(1, "#090D16");
+  ctx.fillStyle = visorGrad;
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+  ctx.beginPath();
+  ctx.roundRect(cx - 95, cy - 58, 130, 14, 7);
+  ctx.fill();
+  ctx.restore();
+
+  const imageData = ctx.getImageData(0, 0, size, size);
+
+  return {
+    kind: "raster",
+    imageData,
+    width: size,
+    height: size,
+    originalWidth: size,
+    originalHeight: size,
+    wasDownscaled: false,
+    fileName: "contoh-maskot-3d.png",
+    fileSizeBytes: imageData.data.byteLength,
+    mimeType: "image/png",
+  };
+}

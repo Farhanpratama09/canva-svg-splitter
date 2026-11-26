@@ -8,6 +8,7 @@ export interface BatchFilmstripItem {
   fileName: string;
   thumbnailUrl: string;
   isNativeSvg: boolean;
+  processingMode: "2d" | "3d";
   groupCount: number;
 }
 
@@ -74,8 +75,12 @@ export function BatchFilmstrip({
                     {item.fileName}
                   </p>
                   <p className="text-[10px] text-slate-400 tabular-nums">
-                    {item.isNativeSvg ? "SVG" : "Raster"} • {item.groupCount}{" "}
-                    grup
+                    {item.processingMode === "3d"
+                      ? "3D"
+                      : item.isNativeSvg
+                        ? "SVG"
+                        : "2D"}{" "}
+                    • {item.groupCount} grup
                   </p>
                 </div>
               </button>

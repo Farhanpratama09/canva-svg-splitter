@@ -168,6 +168,79 @@ export async function renderSvgToHdRasterFile(params: {
 }
 
 /**
+ * Scales a Mode 3D / gradient ImageData cleanly to 1x/2x/4x HD (max 4096px)
+ * and exports a transparent PNG or solid-background catalog JPG.
+ */
+export async function renderImageDataToHdRasterFile(params: {
+  imageData: ImageData;
+  baseWidth: number;
+  baseHeight: number;
+  baseFileName: string;
+  scale: HdScaleFactor;
+  format: HdRasterFormat;
+  jpgBackgroundHex?: string;
+}): Promise<ExportedBinaryFile> {
+  const {
+    imageData,
+    baseWidth,
+    baseHeight,
+    baseFileName,
+    scale,
+    format,
+    jpgBackgroundHex = "#FFFFFF",
+  } = params;
+
+  const dims = computeHdTargetDimensions(baseWidth, baseHeight, scale);
+  const safeSlug = sanitizeExportBaseName(baseFileName);
+  const fileName = `${safeSlug}-3d-${scale}x-${dims.width}x${dims.height}.${format}`;
+
+  const srcCanvas = document.createElement("canvas");
+  srcCanvas.width = imageData.width;
+  srcCanvas.height = imageData.height;
+  const srcCtx = srcCanvas.getContext("2d");
+  if (!srcCtx) {
+    throw new Error("Browser gagal membuat konteks sumber gambar 3D.");
+  }
+  srcCtx.putImageData(imageData, 0, 0);
+
+  const dstCanvas = document.createElement("canvas");
+  dstCanvas.width = dims.width;
+  dstCanvas.height = dims.height;
+  const dstCtx = dstCanvas.getContext("2d");
+  if (!dstCtx) {
+    throw new Error("Browser gagal membuat konteks kanvas ekspor HD 3D.");
+  }
+
+  dstCtx.imageSmoothingEnabled = true;
+  dstCtx.imageSmoothingQuality = "high";
+
+  if (format === "jpg") {
+    dstCtx.fillStyle = normalizeHexColor(jpgBackgroundHex) ?? "#FFFFFF";
+    dstCtx.fillRect(0, 0, dims.width, dims.height);
+  } else {
+    dstCtx.clearRect(0, 0, dims.width, dims.height);
+  }
+
+  dstCtx.drawImage(srcCanvas, 0, 0, dims.width, dims.height);
+
+  const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+  const blob = await canvasToBlob(
+    dstCanvas,
+    mimeType,
+    format === "jpg" ? 0.94 : undefined,
+  );
+
+  return {
+    fileName,
+    blob,
+    byteSize: blob.size,
+    width: dims.width,
+    height: dims.height,
+    format,
+  };
+}
+
+/**
  * Packages multiple exported files (.svg, .png, .jpg) into a single .zip archive
  * completely client-side via JSZip.
  */

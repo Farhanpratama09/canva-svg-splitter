@@ -9,6 +9,7 @@ import {
   Download,
   FileCode2,
   FileImage,
+  Info,
   Minimize2,
   Sparkles,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const JPG_BG_PRESETS = ["#FFFFFF", "#F3F4F6", "#111318", "#FCE7F3"] as const;
 const HD_SCALES: HdScaleFactor[] = [1, 2, 4];
 
 interface ExportPanelProps {
+  processingMode: "2d" | "3d";
   exportResult: CanvaSvgExportResult | null;
   baseWidth: number;
   baseHeight: number;
@@ -61,6 +63,7 @@ function formatKb(byteSize: number): string {
 }
 
 export function ExportPanel({
+  processingMode,
   exportResult,
   baseWidth,
   baseHeight,
@@ -83,6 +86,10 @@ export function ExportPanel({
     () => new Set(),
   );
 
+  // In Mode 3D, SVG export is disabled and automatically routed to PNG/JPG HD
+  const effectiveFormat: ExportFormatOption =
+    processingMode === "3d" && format === "svg" ? "png" : format;
+
   const handleDownloadSingleSvg = useCallback((file: ExportedSvgFile) => {
     const blob = new Blob([file.svgString], {
       type: "image/svg+xml;charset=utf-8",
@@ -96,12 +103,12 @@ export function ExportPanel({
   }, []);
 
   const handleHdDownload = useCallback(async () => {
-    if (format === "svg") return;
+    if (effectiveFormat === "svg") return;
     setIsExporting(true);
     setExportError(null);
     try {
       await onExportActiveHdRaster({
-        format,
+        format: effectiveFormat,
         scale: hdScale,
         jpgBgHex,
       });
@@ -112,14 +119,14 @@ export function ExportPanel({
     } finally {
       setIsExporting(false);
     }
-  }, [format, hdScale, jpgBgHex, onExportActiveHdRaster]);
+  }, [effectiveFormat, hdScale, jpgBgHex, onExportActiveHdRaster]);
 
   const handleZipDownload = useCallback(async () => {
     setIsExporting(true);
     setExportError(null);
     try {
       await onExportAllZip({
-        format,
+        format: effectiveFormat,
         scale: hdScale,
         jpgBgHex,
       });
@@ -130,26 +137,30 @@ export function ExportPanel({
     } finally {
       setIsExporting(false);
     }
-  }, [format, hdScale, jpgBgHex, onExportAllZip]);
+  }, [effectiveFormat, hdScale, jpgBgHex, onExportAllZip]);
 
   const files = exportResult?.files ?? [];
   const totalBytes = files.reduce((acc, f) => acc + f.byteSize, 0);
   const hdDims = computeHdTargetDimensions(baseWidth, baseHeight, hdScale);
   const showZipButton =
-    batchItemCount > 1 || (format === "svg" && files.length > 1);
+    batchItemCount > 1 || (effectiveFormat === "svg" && files.length > 1);
 
   return (
     <div className="space-y-3.5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-100">
-          Ekspor Multi-Format
+          {processingMode === "3d" ? "Ekspor HD Mode 3D" : "Ekspor Multi-Format"}
         </h2>
         <span className="rounded-md bg-[#202532] px-2 py-0.5 text-[11px] font-medium text-teal-300">
-          {isNativeSvgSource ? "Vektor SVG Asli" : "Vektor + HD"}
+          {processingMode === "3d"
+            ? "3D Gradasi (PNG/JPG)"
+            : isNativeSvgSource
+              ? "Vektor SVG Asli"
+              : "Vektor + HD"}
         </span>
       </div>
 
-      {/* Format Selector: SVG (Canva) | PNG Transparan HD | JPG Katalog HD */}
+      {/* Format Selector: SVG (Mode 2D only) | PNG Transparan HD | JPG Katalog HD */}
       <div
         role="tablist"
         aria-label="Pilih format file ekspor"
@@ -158,12 +169,20 @@ export function ExportPanel({
         <button
           type="button"
           role="tab"
-          aria-selected={format === "svg"}
+          aria-selected={effectiveFormat === "svg"}
+          disabled={processingMode === "3d"}
           onClick={() => setFormat("svg")}
+          title={
+            processingMode === "3d"
+              ? "Ekspor SVG hanya aktif di Mode 2D"
+              : "Ekspor SVG siap Canva Free"
+          }
           className={`flex min-h-[44px] items-center justify-center gap-1 rounded-lg px-2 text-xs font-semibold transition-colors ${
-            format === "svg"
-              ? "bg-teal-400 text-slate-950"
-              : "text-slate-300 hover:text-white"
+            processingMode === "3d"
+              ? "cursor-not-allowed text-slate-500 line-through"
+              : effectiveFormat === "svg"
+                ? "bg-teal-400 text-slate-950"
+                : "text-slate-300 hover:text-white"
           }`}
         >
           <FileCode2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -173,10 +192,10 @@ export function ExportPanel({
         <button
           type="button"
           role="tab"
-          aria-selected={format === "png"}
+          aria-selected={effectiveFormat === "png"}
           onClick={() => setFormat("png")}
           className={`flex min-h-[44px] items-center justify-center gap-1 rounded-lg px-2 text-xs font-semibold transition-colors ${
-            format === "png"
+            effectiveFormat === "png"
               ? "bg-teal-400 text-slate-950"
               : "text-slate-300 hover:text-white"
           }`}
@@ -188,10 +207,10 @@ export function ExportPanel({
         <button
           type="button"
           role="tab"
-          aria-selected={format === "jpg"}
+          aria-selected={effectiveFormat === "jpg"}
           onClick={() => setFormat("jpg")}
           className={`flex min-h-[44px] items-center justify-center gap-1 rounded-lg px-2 text-xs font-semibold transition-colors ${
-            format === "jpg"
+            effectiveFormat === "jpg"
               ? "bg-teal-400 text-slate-950"
               : "text-slate-300 hover:text-white"
           }`}
@@ -200,6 +219,22 @@ export function ExportPanel({
           <span>JPG HD</span>
         </button>
       </div>
+
+      {/* Mode 3D Notice explaining why SVG is disabled */}
+      {processingMode === "3d" && (
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2.5 text-xs text-sky-100"
+        >
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
+          <p className="leading-relaxed">
+            Ekspor <code>.svg</code> hanya aktif di <strong>Mode 2D</strong>{" "}
+            karena Canva Free tidak mendukung gradasi 3D di dalam SVG. Gunakan{" "}
+            <strong>PNG Transparan HD</strong> atau{" "}
+            <strong>JPG Katalog HD</strong> agar kilap dan bayangan tetap utuh.
+          </p>
+        </div>
+      )}
 
       {exportError && (
         <div
@@ -210,8 +245,8 @@ export function ExportPanel({
         </div>
       )}
 
-      {/* Raster-to-Vector Curve Settings (shown when raster source & SVG or curve controls needed) */}
-      {!isNativeSvgSource && (
+      {/* Raster-to-Vector Curve Settings (Mode 2D raster only) */}
+      {processingMode === "2d" && !isNativeSvgSource && (
         <div className="space-y-2 rounded-xl border border-white/10 bg-[#101217] p-3">
           <div>
             <div className="flex items-center justify-between text-xs">
@@ -278,8 +313,8 @@ export function ExportPanel({
         </div>
       )}
 
-      {/* SVG Format View */}
-      {format === "svg" && (
+      {/* SVG Format View (Mode 2D only) */}
+      {effectiveFormat === "svg" && (
         <>
           {exportResult && files.length > 0 ? (
             <>
@@ -456,8 +491,8 @@ export function ExportPanel({
         </>
       )}
 
-      {/* PNG HD & JPG Katalog HD Formats */}
-      {(format === "png" || format === "jpg") && (
+      {/* PNG HD & JPG Katalog HD Formats (Active in both 2D and 3D modes) */}
+      {(effectiveFormat === "png" || effectiveFormat === "jpg") && (
         <div className="space-y-3">
           <div className="rounded-xl border border-white/10 bg-[#101217] p-3">
             <div className="flex items-center justify-between text-xs">
@@ -507,31 +542,38 @@ export function ExportPanel({
             <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-teal-300" aria-hidden="true" />
               <span>
-                {format === "png"
-                  ? "PNG Transparan HD: bebas batas 5 warna, siap cetak keyring & stiker."
+                {effectiveFormat === "png"
+                  ? processingMode === "3d"
+                    ? "PNG Transparan HD 3D: mempertahankan kilap cahaya, bayangan halus, dan alpha transparan."
+                    : "PNG Transparan HD: bebas batas 5 warna, siap cetak keyring & stiker."
                   : "JPG Katalog HD: cocok untuk pratinjau WhatsApp & katalog klien."}
               </span>
             </p>
           </div>
 
-          {format === "jpg" && (
+          {effectiveFormat === "jpg" && (
             <div className="rounded-xl border border-white/10 bg-[#101217] p-3">
               <p className="mb-2 text-xs font-medium text-slate-200">
                 Warna Latar Belakang JPG
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-white/15 bg-[#1B202C] px-2.5">
-                  <input
-                    type="color"
-                    value={jpgBgHex}
-                    onChange={(e) => setJpgBgHex(e.target.value.toUpperCase())}
-                    aria-label="Pilih warna latar belakang JPG katalog"
-                    className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
+                <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-xl border border-white/15 bg-[#1B202C] px-2.5">
+                  <span
+                    className="h-5 w-5 shrink-0 rounded border border-white/25"
+                    style={{ backgroundColor: jpgBgHex }}
+                    aria-hidden="true"
                   />
-                  <span className="font-mono text-xs text-slate-100">
-                    {jpgBgHex}
-                  </span>
-                </label>
+                  <input
+                    type="text"
+                    value={jpgBgHex}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase().slice(0, 7);
+                      setJpgBgHex(val);
+                    }}
+                    aria-label="Kode hex warna latar belakang JPG katalog"
+                    className="w-full bg-transparent font-mono text-xs text-slate-100 focus:outline-none"
+                  />
+                </div>
 
                 {JPG_BG_PRESETS.map((preset) => (
                   <button
@@ -562,7 +604,7 @@ export function ExportPanel({
               <span>
                 {isExporting
                   ? "Merender Gambar HD..."
-                  : `Unduh ${format.toUpperCase()} (${hdDims.width}×${hdDims.height}px)`}
+                  : `Unduh ${effectiveFormat.toUpperCase()} (${hdDims.width}×${hdDims.height}px)`}
               </span>
             </button>
 
@@ -575,7 +617,8 @@ export function ExportPanel({
               >
                 <Archive className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
-                  Unduh Semua Batch ({batchItemCount} {format.toUpperCase()} .ZIP)
+                  Unduh Semua Batch ({batchItemCount}{" "}
+                  {effectiveFormat.toUpperCase()} .ZIP)
                 </span>
               </button>
             )}

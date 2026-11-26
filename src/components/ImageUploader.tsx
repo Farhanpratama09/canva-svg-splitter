@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ChangeEvent, type DragEvent } from "react";
-import { ImagePlus, Sparkles, ShieldCheck, AlertCircle } from "lucide-react";
+import { ImagePlus, Sparkles, ShieldCheck, AlertCircle, Box } from "lucide-react";
 import { MAX_BATCH_FILES } from "@/lib/image-processor/image-loader";
 
 interface ImageUploaderProps {
   onFilesSelect: (files: File[]) => void;
   onLoadSample: () => void;
+  onLoadSample3D?: () => void;
   isLoading: boolean;
   errorMessage: string | null;
   onRequestPickFiles: () => void;
@@ -15,6 +16,7 @@ interface ImageUploaderProps {
 export function ImageUploader({
   onFilesSelect,
   onLoadSample,
+  onLoadSample3D,
   isLoading,
   errorMessage,
   onRequestPickFiles,
@@ -88,12 +90,12 @@ export function ImageUploader({
         </div>
 
         <h2 className="text-lg font-semibold tracking-tight text-slate-100 sm:text-xl">
-          Unggah Ilustrasi 2D atau SVG
+          Unggah Ilustrasi 2D, Render 3D, atau SVG
         </h2>
 
         <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-slate-300">
           Ketuk tombol di bawah atau seret hingga {MAX_BATCH_FILES} file stiker,
-          keyring, atau vektor SVG ke area ini.
+          render 3D/clay, atau vektor SVG ke area ini.
         </p>
 
         {errorMessage && (
@@ -106,26 +108,40 @@ export function ImageUploader({
           </div>
         )}
 
-        <div className="mt-5 flex w-full flex-col gap-2.5 sm:flex-row">
+        <div className="mt-5 flex w-full flex-col gap-2.5">
           <button
             type="button"
             onClick={onRequestPickFiles}
             disabled={isLoading}
-            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-teal-400 px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-teal-300 active:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-teal-300 active:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <ImagePlus className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{isLoading ? "Memproses..." : "Pilih Gambar"}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={onLoadSample}
-            disabled={isLoading}
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-slate-600 bg-[#1F242F] px-4 text-sm font-medium text-slate-100 transition-colors hover:border-slate-400 hover:bg-[#272D3A] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Sparkles className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
-            <span>Contoh Stiker</span>
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onLoadSample}
+              disabled={isLoading}
+              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-[#1F242F] px-3 text-xs font-medium text-slate-100 transition-colors hover:border-slate-400 hover:bg-[#272D3A] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+            >
+              <Sparkles className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
+              <span>Contoh 2D</span>
+            </button>
+
+            {onLoadSample3D && (
+              <button
+                type="button"
+                onClick={onLoadSample3D}
+                disabled={isLoading}
+                className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-[#1F242F] px-3 text-xs font-medium text-slate-100 transition-colors hover:border-teal-400/50 hover:bg-[#272D3A] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+              >
+                <Box className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
+                <span>Contoh 3D</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-xs text-slate-400">

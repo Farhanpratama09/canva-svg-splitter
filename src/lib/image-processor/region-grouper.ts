@@ -20,6 +20,53 @@ export const PASTEL_COLOR_PRESETS = [
   "#FFFFFF",
 ] as const;
 
+export const INLINE_PALETTE_CATEGORIES = [
+  {
+    id: "pastel",
+    label: "Pastel",
+    colors: [
+      "#FFD6E0",
+      "#FFCAD4",
+      "#FDE2E4",
+      "#FFF1C9",
+      "#D8F3DC",
+      "#BDE0FE",
+      "#C8A2C8",
+      "#E2D4F0",
+    ],
+  },
+  {
+    id: "pop",
+    label: "Cerah / Pop",
+    colors: [
+      "#FF3B5C",
+      "#FF6B6B",
+      "#FF9F1C",
+      "#FFD166",
+      "#06D6A0",
+      "#14B8A6",
+      "#3B82F6",
+      "#8B5CF6",
+    ],
+  },
+  {
+    id: "neutral",
+    label: "Netral",
+    colors: [
+      "#FFFFFF",
+      "#F1F5F9",
+      "#CBD5E1",
+      "#94A3B8",
+      "#64748B",
+      "#334155",
+      "#1E1E24",
+      "#000000",
+    ],
+  },
+] as const;
+
+const DEFAULT_GROUP_NAME_REGEX = /^Grup \d+$/;
+
 export interface ColorGroup {
   groupId: string;
   name: string;
@@ -75,6 +122,41 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
     g: (value >> 8) & 255,
     b: value & 255,
   };
+}
+
+/**
+ * Converts sRGB [0..255] to HSL: hue in [0, 360), saturation & lightness in [0, 1].
+ */
+export function rgbToHsl(
+  r: number,
+  g: number,
+  b: number,
+): { h: number; s: number; l: number } {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  const delta = max - min;
+
+  if (delta <= 1e-6) {
+    return { h: 0, s: 0, l };
+  }
+
+  const s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  let h = 0;
+
+  if (max === rn) {
+    h = ((gn - bn) / delta + (gn < bn ? 6 : 0)) * 60;
+  } else if (max === gn) {
+    h = ((bn - rn) / delta + 2) * 60;
+  } else {
+    h = ((rn - gn) / delta + 4) * 60;
+  }
+
+  return { h: (h + 360) % 360, s, l };
 }
 
 function pickDistinctColorHex(
@@ -314,6 +396,202 @@ export function assignRegionToGroup(
 }
 
 /**
+ * Removes a region from activeGroupId by splitting it out into a new group
+ * with its original color (so Mode 2D regions remain valid and Undo/Redo works cleanly).
+ * Returns state unchanged if the region does not belong to activeGroupId or is its sole member.
+ */
+export function removeRegionFromGroup(
+  state: RegionGroupingState,
+  regionId: number,
+  activeGroupId: string,
+): RegionGroupingState {
+  const currentGroupId = state.regionToGroup[regionId];
+  if (!currentGroupId || currentGroupId !== activeGroupId) {
+    return state;
+  }
+
+  const activeGroup = state.groups.find((g) => g.groupId === activeGroupId);
+  if (!activeGroup || activeGroup.regionIds.length <= 1) {
+    return state;
+  }
+
+  const region = state.sourceRegions.find((r) => r.regionId === regionId);
+  return splitRegionToNewGroup(state, regionId, region?.originalHex);
+}
+
+/**
+ * Batch-merges all regions in selectedRegionIds into a single ColorGroup
+ * (adopting targetGroupId if specified, otherwise the group of the first selected region).
+ * Performs an atomic state update so the entire confirmation creates 1 Undo/Redo step.
+ */
+export function mergeSelectedRegions(
+  state: RegionGroupingState,
+  regionIds: number[],
+  targetGroupId?: string,
+): RegionGroupingState {
+  const uniqueIds = Array.from(
+    new Set(regionIds.filter((id) => Boolean(state.regionToGroup[id]))),
+  );
+  if (uniqueIds.length === 0) {
+    return state;
+  }
+
+  const resolvedTargetGroupId =
+    targetGroupId && state.groups.some((g) => g.groupId === targetGroupId)
+      ? targetGroupId
+      : state.regionToGroup[uniqueIds[0]];
+  if (!resolvedTargetGroupId) {
+    return state;
+  }
+
+  const selectedSet = new Set(uniqueIds);
+  const alreadyAllInTarget = uniqueIds.every(
+    (id) => state.regionToGroup[id] === resolvedTargetGroupId,
+  );
+  if (alreadyAllInTarget) {
+    return state;
+  }
+
+  const regionLookup = buildRegionPixelLookup(state.sourceRegions);
+  const nextRegionToGroup: Record<number, string> = { ...state.regionToGroup };
+  for (const id of uniqueIds) {
+    nextRegionToGroup[id] = resolvedTargetGroupId;
+  }
+
+  const targetGroupObj = state.groups.find(
+    (g) => g.groupId === resolvedTargetGroupId,
+  );
+  if (!targetGroupObj) return state;
+
+  // Preserve custom name if target still had default name & an absorbed emptied group had custom name
+  let resolvedTargetName = targetGroupObj.name;
+  if (DEFAULT_GROUP_NAME_REGEX.test(resolvedTargetName)) {
+    for (const grp of state.groups) {
+      if (grp.groupId === resolvedTargetGroupId) continue;
+      const remains = grp.regionIds.some((id) => !selectedSet.has(id));
+      if (!remains && !DEFAULT_GROUP_NAME_REGEX.test(grp.name)) {
+        resolvedTargetName = grp.name;
+        break;
+      }
+    }
+  }
+
+  const nextGroups: ColorGroup[] = [];
+  for (const group of state.groups) {
+    if (group.groupId === resolvedTargetGroupId) {
+      const combinedIds = Array.from(new Set([...group.regionIds, ...uniqueIds]));
+      nextGroups.push({
+        ...group,
+        name: resolvedTargetName,
+        regionIds: combinedIds,
+        totalPixels: computeTotalPixels(combinedIds, regionLookup),
+      });
+    } else {
+      const remaining = group.regionIds.filter((id) => !selectedSet.has(id));
+      if (remaining.length > 0) {
+        nextGroups.push({
+          ...group,
+          regionIds: remaining,
+          totalPixels: computeTotalPixels(remaining, regionLookup),
+        });
+      }
+    }
+  }
+
+  return {
+    ...state,
+    groups: nextGroups,
+    regionToGroup: nextRegionToGroup,
+  };
+}
+
+/**
+ * Batch-splits all regions in selectedRegionIds out of their existing groups
+ * into a single brand-new ColorGroup in 1 atomic Undo/Redo step.
+ */
+export function splitSelectedRegionsToNewGroup(
+  state: RegionGroupingState,
+  regionIds: number[],
+  customHex?: string,
+): RegionGroupingState {
+  const uniqueIds = Array.from(
+    new Set(regionIds.filter((id) => Boolean(state.regionToGroup[id]))),
+  );
+  if (uniqueIds.length === 0) {
+    return state;
+  }
+
+  // If the selection already constitutes the exact entirety of a single group, no split needed
+  const firstGroupId = state.regionToGroup[uniqueIds[0]];
+  const firstGroup = state.groups.find((g) => g.groupId === firstGroupId);
+  if (
+    firstGroup &&
+    firstGroup.regionIds.length === uniqueIds.length &&
+    uniqueIds.every((id) => state.regionToGroup[id] === firstGroupId)
+  ) {
+    if (!customHex) return state;
+    const normalized = normalizeHexColor(customHex);
+    if (!normalized || normalized === firstGroup.colorHex) return state;
+    return updateGroupColor(state, firstGroup.groupId, normalized);
+  }
+
+  const regionLookup = buildRegionPixelLookup(state.sourceRegions);
+  const usedHexes = new Set(state.groups.map((g) => g.colorHex));
+  const normalizedCustom = customHex ? normalizeHexColor(customHex) : null;
+  const newColorHex =
+    normalizedCustom ?? pickDistinctColorHex(usedHexes, state.nextGroupSeq);
+  const rgb = hexToRgb(newColorHex);
+
+  const newGroupSeq = state.nextGroupSeq;
+  const newGroupId = `group-${newGroupSeq}`;
+  const selectedSet = new Set(uniqueIds);
+
+  const newGroup: ColorGroup = {
+    groupId: newGroupId,
+    name: `Grup ${newGroupSeq}`,
+    colorHex: newColorHex,
+    r: rgb.r,
+    g: rgb.g,
+    b: rgb.b,
+    regionIds: uniqueIds,
+    totalPixels: computeTotalPixels(uniqueIds, regionLookup),
+  };
+
+  const nextGroups: ColorGroup[] = [];
+  let inserted = false;
+
+  for (const group of state.groups) {
+    const remaining = group.regionIds.filter((id) => !selectedSet.has(id));
+    if (remaining.length > 0) {
+      nextGroups.push({
+        ...group,
+        regionIds: remaining,
+        totalPixels: computeTotalPixels(remaining, regionLookup),
+      });
+    }
+    if (group.groupId === firstGroupId && !inserted) {
+      nextGroups.push(newGroup);
+      inserted = true;
+    }
+  }
+  if (!inserted) {
+    nextGroups.push(newGroup);
+  }
+
+  const nextRegionToGroup: Record<number, string> = { ...state.regionToGroup };
+  for (const id of uniqueIds) {
+    nextRegionToGroup[id] = newGroupId;
+  }
+
+  return {
+    ...state,
+    groups: nextGroups,
+    regionToGroup: nextRegionToGroup,
+    nextGroupSeq: newGroupSeq + 1,
+  };
+}
+
+/**
  * Updates the solid hex fill color of a specific ColorGroup for Live Preview.
  */
 export function updateGroupColor(
@@ -351,7 +629,36 @@ export function updateGroupColor(
 }
 
 /**
+ * Renames a specific ColorGroup cleanly (immutable, integrates with Undo/Redo).
+ * Ignores empty names or no-op renames by returning the existing state reference.
+ */
+export function renameGroup(
+  state: RegionGroupingState,
+  groupId: string,
+  newName: string,
+): RegionGroupingState {
+  const cleanName = newName.trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!cleanName) {
+    return state;
+  }
+
+  const targetGroup = state.groups.find((g) => g.groupId === groupId);
+  if (!targetGroup || targetGroup.name === cleanName) {
+    return state;
+  }
+
+  return {
+    ...state,
+    groups: state.groups.map((group) =>
+      group.groupId === groupId ? { ...group, name: cleanName } : group,
+    ),
+  };
+}
+
+/**
  * Merges all regions from sourceGroupId into targetGroupId and removes sourceGroupId.
+ * Preserves targetGroup's custom name (or inherits sourceGroup's custom name if target
+ * still uses an auto-generated default name).
  */
 export function mergeGroups(
   state: RegionGroupingState,
@@ -379,12 +686,20 @@ export function mergeGroups(
     new Set([...targetGroup.regionIds, ...sourceGroup.regionIds]),
   );
 
+  const preserveSourceCustomName =
+    DEFAULT_GROUP_NAME_REGEX.test(targetGroup.name) &&
+    !DEFAULT_GROUP_NAME_REGEX.test(sourceGroup.name);
+  const resolvedName = preserveSourceCustomName
+    ? sourceGroup.name
+    : targetGroup.name;
+
   const nextGroups: ColorGroup[] = [];
   for (const group of state.groups) {
     if (group.groupId === sourceGroupId) continue;
     if (group.groupId === targetGroupId) {
       nextGroups.push({
         ...group,
+        name: resolvedName,
         regionIds: combinedIds,
         totalPixels: computeTotalPixels(combinedIds, regionLookup),
       });
@@ -610,7 +925,8 @@ export function renderGroupedCanvasImageData(params: {
   regions: RegionInfo[];
   groupingState: RegionGroupingState;
   mode: CanvasPreviewMode;
-  selectedRegionId: number | null;
+  selectedRegionId?: number | null;
+  selectedRegionIds?: number[];
   selectedGroupId: string | null;
 }): ImageData {
   const {
@@ -620,7 +936,8 @@ export function renderGroupedCanvasImageData(params: {
     regions,
     groupingState,
     mode,
-    selectedRegionId,
+    selectedRegionId = null,
+    selectedRegionIds,
     selectedGroupId,
   } = params;
 
@@ -637,13 +954,22 @@ export function renderGroupedCanvasImageData(params: {
     groupMap.set(group.groupId, group);
   }
 
+  const activeRegionIds =
+    selectedRegionIds && selectedRegionIds.length > 0
+      ? selectedRegionIds
+      : selectedRegionId !== null
+        ? [selectedRegionId]
+        : [];
+  const selectedRegionSet = new Set(activeRegionIds);
+  const hasExplicitRegions = selectedRegionSet.size > 0;
+
   const effectiveGroupId =
     selectedGroupId ??
-    (selectedRegionId !== null
-      ? groupingState.regionToGroup[selectedRegionId] ?? null
+    (activeRegionIds.length === 1
+      ? groupingState.regionToGroup[activeRegionIds[0]] ?? null
       : null);
 
-  const hasSelection = selectedRegionId !== null || effectiveGroupId !== null;
+  const hasSelection = hasExplicitRegions || effectiveGroupId !== null;
 
   const lutR = new Uint8Array(regionCount + 1);
   const lutG = new Uint8Array(regionCount + 1);
@@ -682,13 +1008,13 @@ export function renderGroupedCanvasImageData(params: {
 
     if (!hasSelection) {
       tier[id] = 1;
-    } else if (selectedRegionId !== null && id === selectedRegionId) {
-      tier[id] = 2;
+    } else if (hasExplicitRegions) {
+      tier[id] = selectedRegionSet.has(id) ? 2 : 0;
     } else if (
       effectiveGroupId !== null &&
       groupingState.regionToGroup[id] === effectiveGroupId
     ) {
-      tier[id] = selectedRegionId === null ? 2 : 1;
+      tier[id] = 2;
     } else {
       tier[id] = 0;
     }
@@ -747,10 +1073,10 @@ export function renderGroupedCanvasImageData(params: {
       }
 
       if (hasSelection && regTier === 0) {
-        // Gentle dark dimming for inactive regions so selected group stands out
-        out[off] = Math.round(lutR[id] * 0.42 + 10);
-        out[off + 1] = Math.round(lutG[id] * 0.42 + 12);
-        out[off + 2] = Math.round(lutB[id] * 0.42 + 16);
+        // Contrast dimming for inactive groups so selected group members stand out cleanly
+        out[off] = Math.round(lutR[id] * 0.34 + 8);
+        out[off + 1] = Math.round(lutG[id] * 0.34 + 10);
+        out[off + 2] = Math.round(lutB[id] * 0.34 + 14);
         out[off + 3] = 255;
       } else {
         out[off] = lutR[id];
